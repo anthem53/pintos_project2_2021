@@ -42,6 +42,8 @@ process_execute (const char *file_name)
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
 
+
+
   if (tid == TID_ERROR)
   {
     palloc_free_page (fn_copy);
@@ -142,35 +144,32 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid)
 {
-  while(1)
-  {}
+  struct thread * cur = thread_current();
+  struct list_elem * e = list_begin(&cur->child_list);
 
+  //printf("cur name : %s \n",cur->name);
+  //printf("child List size : %d\n",list_size(&cur->child_list));
+  while( e != list_end(&cur->child_list))
+  {
+    struct thread * child = list_entry(e, struct thread, child_elem);
 
-  if(child_tid != thread_current()->child_tid)
-    return -1;
+    //printf("child name : %s\n", child->name);
+    if (child->tid == child_tid)
+    {
+      enum intr_level old_level;
+      cur->child_for_waiting = child;
+      //printf("cur name : %s, child name : %s\n",cur->name, child->name);
+      old_level = intr_disable();
+      thread_block();
+      intr_set_level(old_level);
+      return cur->child_exit_status;
+    }
 
-  /*
-  child_tid = exec(); -> inline -> thread_current()->child_tid = child_tid;
-  wait();
-*/
+    e = list_next(e);
+  }
 
-  thread_current()->child_tid = child_tid;
-  thread_block();
-/*
-// child:
-    thread_unbock(thread_current()->parent);
-
-
-// kernel->killchild()
-// if(child->parent != null)
-    child->parent->child_tid = -1;
-    thread_unblock(child->parent);
-*/
-
-  int result = thread_current() -> child_tid;
-  thread_current() -> child_tid = -1;
-
-  return result;
+  //printf("wait return -1\n");;
+  return -1;
 }
 
 /* Free the current process's resources. */

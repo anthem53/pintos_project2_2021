@@ -179,8 +179,11 @@ thread_create (const char *name, int priority,
   if (t == NULL)
     return TID_ERROR;
 
+  //printf("cur : %s \n",thread_current()->name);
   /* Initialize thread. */
   init_thread (t, name, priority);
+  t->parent = thread_current();
+  list_push_back(&thread_current()->child_list, &t->child_elem);
   tid = t->tid = allocate_tid ();
 
   /* Stack frame for kernel_thread(). */
@@ -197,6 +200,8 @@ thread_create (const char *name, int priority,
   sf = alloc_frame (t, sizeof *sf);
   sf->eip = switch_entry;
   sf->ebp = 0;
+
+  //printf("cur : %s , child :%s \n",thread_current()->name, t->name);
 
   /* Add to run queue. */
   thread_unblock (t);
@@ -456,24 +461,30 @@ static void
 init_thread (struct thread *t, const char *name, int priority)
 {
   enum intr_level old_level;
+  char *save_ptr;
 
   ASSERT (t != NULL);
   ASSERT (PRI_MIN <= priority && priority <= PRI_MAX);
   ASSERT (name != NULL);
 
+
   memset (t, 0, sizeof *t);
   t->status = THREAD_BLOCKED;
   strlcpy (t->name, name, sizeof t->name);
+  strtok_r (t->name, " ", &save_ptr);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
-
-  t->child_tid = -1;
-  t->parent = NULL;
+  //t->parent = thread_current();
+  list_init (&t->child_list);
+  t-> child_exit_status = -1;
+  t-> child_for_waiting = NULL;
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
   intr_set_level (old_level);
+
+
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and
@@ -585,6 +596,25 @@ allocate_tid (void)
 
   return tid;
 }
+
+struct thread * thread_get_with_tid(int tid)
+{
+  struct list_elem * e = list_begin(&all_list);
+
+  while( e != list_end(&all_list))
+  {
+    struct thread * t  = list_entry(e, struct thread, allelem);
+    if( t->tid == tid)
+    {
+        return t;
+    }
+    e = list_next(e);
+  }
+
+  return NULL;
+}
+
+
 
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */

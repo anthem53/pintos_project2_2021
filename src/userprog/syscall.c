@@ -17,20 +17,23 @@ syscall_handler (struct intr_frame *f)
 {
    char* esp = f->esp;
    int syscallNum;
+   tid_t result =-190;
 
    syscallNum = *((int*)esp);
 
    switch(syscallNum)
    {
     case SYS_HALT:
+      shutdown_power_off();
       break;
     case SYS_EXIT:
-      exit(*((int*)esp+4));
+      exit(*((int*)(esp+4)));
       break;
     case SYS_EXEC:
-    /* */
+      f->eax = exec(*((char**)(esp+4)));
       break;
     case SYS_WAIT:
+      f->eax = wait(*((tid_t*)(esp+4)));
       break;
     case SYS_CREATE :
       break;
@@ -43,7 +46,7 @@ syscall_handler (struct intr_frame *f)
     case  SYS_READ:
       break;
     case SYS_WRITE:
-      write(*((int*)(esp+4)), *((char**)(esp+8)), *((unsigned*)(esp+12)));
+      f->eax = write(*((int*)(esp+4)), *((char**)(esp+8)), *((unsigned*)(esp+12)));
       break;
     case SYS_SEEK:
       break;
@@ -57,7 +60,17 @@ syscall_handler (struct intr_frame *f)
 
 void exit(int status)
 {
-  printf("%s: exit(%d)\n", thread_current()->name, status);
+  struct thread * cur = thread_current();
+  printf("%s: exit(%d)\n", cur->name, status);
+
+  list_remove(&cur->child_elem);
+
+  if( cur == cur->parent->child_for_waiting)
+  {
+    cur->parent->child_exit_status = status;
+    thread_unblock(cur->parent);
+  }
+
   thread_exit();
 }
 
@@ -74,4 +87,20 @@ int write (int fd, const void *buffer, unsigned size)
   {
     // Not yet implemented
   }
+
+  return 0;
+}
+
+int  exec( char * cmd_line)
+{
+  int result = process_execute(cmd_line);
+  struct thread * child = thread_get_with_tid(result);
+
+  return result;
+}
+
+int wait(tid_t tid)
+{
+  return process_wait(tid);
+
 }

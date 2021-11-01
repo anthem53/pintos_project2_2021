@@ -95,9 +95,12 @@ struct thread
 
 
     /* project 2 */
-    tid_t child_tid;
-    struct thread* parent;
 
+    struct thread* parent;
+    struct list child_list;
+    struct list_elem child_elem;
+    int child_exit_status;
+    struct thread* child_for_waiting;
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
@@ -143,5 +146,9 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+/*project 2*/
+
+struct thread * thread_get_with_tid(int tid);
 
 #endif /* threads/thread.h */
