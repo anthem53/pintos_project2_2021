@@ -15,6 +15,8 @@
 #include "userprog/process.h"
 #endif
 
+//#include "filesys/file.h"
+
 /* Random value for struct thread's `magic' member.
    Used to detect stack overflow.  See the big comment at the top
    of thread.h for details. */
@@ -462,6 +464,7 @@ init_thread (struct thread *t, const char *name, int priority)
 {
   enum intr_level old_level;
   char *save_ptr;
+  int i;
 
   ASSERT (t != NULL);
   ASSERT (PRI_MIN <= priority && priority <= PRI_MAX);
@@ -480,6 +483,11 @@ init_thread (struct thread *t, const char *name, int priority)
   t-> child_exit_status = -1;
   t-> child_for_waiting = NULL;
 
+  for(i = 0 ; i < 100; i++ )
+  {
+    t->fd_table[i] = NULL;
+  }
+  t->fd_ref = 2;
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
   intr_set_level (old_level);
@@ -604,7 +612,7 @@ struct thread * thread_get_with_tid(int tid)
   while( e != list_end(&all_list))
   {
     struct thread * t  = list_entry(e, struct thread, allelem);
-    if( t->tid == tid)
+    if( t->tid == tid && (t->status == THREAD_READY || t->status == THREAD_RUNNING))
     {
         return t;
     }
@@ -619,3 +627,19 @@ struct thread * thread_get_with_tid(int tid)
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
+
+
+struct thread* get_thread_with_name(char* name)
+{
+  struct list_elem* e;
+  for(e = list_begin(&all_list); e != list_end(&all_list); e = list_next(e))
+  {
+    struct thread* t = list_entry(e, struct thread, allelem);
+    if( strcmp(name, t->name) == 0 )
+    {
+      return t;
+    }
+  }
+
+  return NULL;
+}

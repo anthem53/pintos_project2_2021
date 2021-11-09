@@ -11,6 +11,7 @@
 #include "filesys/directory.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
+#include "filesys/inode.h"
 #include "threads/flags.h"
 #include "threads/init.h"
 #include "threads/interrupt.h"
@@ -306,6 +307,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
   //printf("[TEST]  Under /process_activate ()/  \n");
   /* Open executable file. */
   file = filesys_open (file_name);
+
   if (file == NULL)
     {
       //printf ("load: %s: open failed\n", file_name);

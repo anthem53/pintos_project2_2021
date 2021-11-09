@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "filesys/file.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -80,6 +81,9 @@ typedef int tid_t;
    only because they are mutually exclusive: only a thread in the
    ready state is on the run queue, whereas only a thread in the
    blocked state is on a semaphore wait list. */
+
+
+
 struct thread
   {
     /* Owned by thread.c. */
@@ -94,17 +98,22 @@ struct thread
     struct list_elem elem;              /* List element. */
 
 
-    /* project 2 */
 
+
+#ifdef USERPROG
+    /* Owned by userprog/process.c. */
+    uint32_t *pagedir;                  /* Page directory. */
+
+    // for wait
     struct thread* parent;
     struct list child_list;
     struct list_elem child_elem;
     int child_exit_status;
     struct thread* child_for_waiting;
 
-#ifdef USERPROG
-    /* Owned by userprog/process.c. */
-    uint32_t *pagedir;                  /* Page directory. */
+    // for fd
+    int fd_ref;
+    struct file * fd_table[100];
 #endif
 
     /* Owned by thread.c. */
@@ -150,5 +159,5 @@ int thread_get_load_avg (void);
 /*project 2*/
 
 struct thread * thread_get_with_tid(int tid);
-
+struct thread* get_thread_with_name(char* name);
 #endif /* threads/thread.h */
