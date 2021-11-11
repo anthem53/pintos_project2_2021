@@ -18,9 +18,18 @@
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "threads/synch.h"
+#include "userprog/syscall.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
+
+struct process_argument
+{
+  char * name;
+  struct semaphore process_sema;
+  struct thread * parent;
+};
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
@@ -29,8 +38,14 @@ static bool load (const char *cmdline, void (**eip) (void), void **esp);
 tid_t
 process_execute (const char *file_name)
 {
+  //sema_down(&thread_current()->child_sema);
   char *fn_copy;
+  struct process_argument* pa;
   tid_t tid;
+
+  pa = palloc_get_page (0);
+  pa->parent = thread_current();
+  sema_init(&pa->process_sema,0);
 
   //printf("[TEST] file name : %s\n",file_name);
   /* Make a copy of FILE_NAME.
@@ -40,24 +55,29 @@ process_execute (const char *file_name)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
 
+  pa->name = fn_copy;
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
 
-
+  tid = thread_create (file_name, PRI_DEFAULT, start_process, pa);
+  sema_down(&thread_current()->exec_sema);
+  //sema_down(&pa->process_sema);
 
   if (tid == TID_ERROR)
   {
     palloc_free_page (fn_copy);
+    palloc_free_page(pa);
   }
+
   return tid;
 }
 
 /* A thread function that loads a user process and starts it
    running. */
 static void
-start_process (void *file_name_)
+start_process (void *arg)
 {
-  char *file_name = file_name_;
+  struct process_argument* pa  = arg;
+  char *file_name = pa->name;
   struct intr_frame if_;
   bool success;
   int i, n, argc;
@@ -66,6 +86,8 @@ start_process (void *file_name_)
   int len;
   uint32_t addr;
   int argc_copy;
+
+
 
   len = strlen(file_name);
   /* Initialize interrupt frame and load executable. */
@@ -77,7 +99,6 @@ start_process (void *file_name_)
   token = strtok_r (file_name, " ", &save_ptr);
 
   success = load (token, &if_.eip, &if_.esp);
-
 
   //* parsing
   esp_old = if_.esp;
@@ -119,9 +140,20 @@ start_process (void *file_name_)
   push_null_ntimes(4, &if_.esp);
 
   /* If load failed, quit. */
+
+/*
+  sema_up(&pa->process_sema);
+  palloc_free_page (pa);
+  */
+
   palloc_free_page (file_name);
-  if (!success)
+  palloc_free_page(pa);
+
+  sema_up(&thread_current()->parent->exec_sema);
+  if (!success){
+    //exit(-1);
     thread_exit ();
+  }
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -153,23 +185,28 @@ process_wait (tid_t child_tid)
   while( e != list_end(&cur->child_list))
   {
     struct thread * child = list_entry(e, struct thread, child_elem);
-
+    int cindex = child->child_index;
     //printf("child name : %s\n", child->name);
     if (child->tid == child_tid)
     {
       enum intr_level old_level;
       cur->child_for_waiting = child;
+      sema_up(&(child->child_sema));
       //printf("cur name : %s, child name : %s\n",cur->name, child->name);
       old_level = intr_disable();
       thread_block();
+      cur->child_for_waiting = NULL;
       intr_set_level(old_level);
-      return cur->child_exit_status;
+
+
+
+      return cur->child_exit_status_buffer[cindex];
     }
 
     e = list_next(e);
   }
 
-  //printf("wait return -1\n");;
+
   return -1;
 }
 
@@ -306,13 +343,34 @@ load (const char *file_name, void (**eip) (void), void **esp)
   process_activate ();
   //printf("[TEST]  Under /process_activate ()/  \n");
   /* Open executable file. */
+  //printf("Before filesys open file name : %s\n",file_name);
+  //file = t->parent->cef[t->child_index].exe_file;
+  //file = file_reopen(file);
   file = filesys_open (file_name);
+  if (file == NULL)
+  {
+      //printf(" file name : %s\n",file_name);
+      //printf("cef name : %s\n",t->parent->cef[t->child_index].name);
+      //file = t->parent->cef[t->child_index].exe_file;
+      //file = filesys_open (file_name);
+      //file = get_thread_execute_file_with_name(file_name);
+  }
 
   if (file == NULL)
     {
-      //printf ("load: %s: open failed\n", file_name);
+
+      printf ("load: %s: open failed\n", file_name);
       goto done;
     }
+
+    //thread_current()->exe_file->num_access_thread++;
+/*
+    printf("*************************************\n");
+    printf("file name : %s\n",file_name);
+    printf("load func. exe_file :%p\n",file);
+    printf("*************************************\n");
+*/
+
 //  printf("[TEST]  ** \n");
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
@@ -398,7 +456,8 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
  done:
   /* We arrive here whether the load is successful or not. */
-  file_close (file);
+
+  //file_close (file);
   //printf("[TEST]  ****** \n");
   return success;
 }

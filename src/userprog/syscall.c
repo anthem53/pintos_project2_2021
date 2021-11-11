@@ -8,15 +8,20 @@
 #include "filesys/filesys.h"
 #include "filesys/inode.h"
 #include "userprog/pagedir.h"
+#include "threads/synch.h"
 
-
+struct lock filesys_lock;
+struct lock exe_lock;
 
 static void syscall_handler (struct intr_frame *);
+
 
 void
 syscall_init (void)
 {
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
+  lock_init(&filesys_lock);
+  lock_init(&exe_lock);
 }
 
 static void
@@ -102,8 +107,10 @@ syscall_handler (struct intr_frame *f)
       f->eax = write(*((int*)(esp+4)), *((char**)(esp+8)), *((unsigned*)(esp+12)));
       break;
     case SYS_SEEK:
+      seek(*((int*)(esp+4)), *((unsigned*)(esp+8)));
       break;
     case SYS_TELL :
+      f->eax = tell(*((int*)(esp+4)));
       break;
     case SYS_CLOSE:
       close(*((int*)(esp+4)));
@@ -133,8 +140,8 @@ void seek (int fd, unsigned position)
   {
     exit(-1);
   }
-
-  file_seek(fd,position);
+  f = thread_current()->fd_table[fd];
+  file_seek(f,position);
   return;
 }
 
@@ -164,38 +171,49 @@ int read (int fd, void * buffer, unsigned size)
   struct thread * current = thread_current();
   struct file * f;
 
-
+ lock_acquire(&filesys_lock);
   if(fd == 0 )
   {
     int result = input_getc();
+    lock_release(&filesys_lock);
     return result;
   }
   else if( ! (fd > 1 && fd < current->fd_ref)  )
   {
+    lock_release(&filesys_lock);
     exit(-1);
   }
   else
   {
     if(buffer >=  0xC0000000)
-    exit(-1);
+    {
+      lock_release(&filesys_lock);
+      exit(-1);
+    }
 
     void * addr = pagedir_get_page( thread_current()->pagedir, buffer);
     if(addr == NULL)
+    {
+      lock_release(&filesys_lock);
       exit(-1);
+    }
 
     f = current->fd_table[fd];
     if(f != NULL)
     {
         int result = file_read(f,buffer,size);
-
+        lock_release(&filesys_lock);
         return result;
     }
     else
     {
+      lock_release(&filesys_lock);
       exit(-1);
     }
 
   }
+
+    lock_release(&filesys_lock);
   return 0;
 }
 
@@ -223,25 +241,28 @@ int open(const char *file)
 {
   struct file* f;
   struct thread* current = thread_current();
-
   struct list_elem* e;
   struct thread* t = get_thread_with_name(file);
-  printf("[open] thread t address : %p \n",t);
-  if(t != NULL)
-  {
-    printf("thread name : %s",t->name);
-    file_deny_write(f);
-  }
+  //printf("[open] thread t address : %p \n",t);
+  lock_acquire(&filesys_lock);
 
   f = filesys_open(file);
-  if(f == NULL)
+  if(f == NULL){
+    lock_release(&filesys_lock);
     return -1;
+  }
   else
   {
     int result;
+    if(t != NULL)
+    {
+      //printf("thread name : %s",t->name);
+      file_deny_write(f);
+    }
     current->fd_table[current->fd_ref] = f;
     result = current->fd_ref;
     (current->fd_ref)++;
+    lock_release(&filesys_lock);
     return result;
   }
 }
@@ -252,11 +273,11 @@ void exit(int status)
   int i = 0;
   printf("%s: exit(%d)\n", cur->name, status);
 
-  list_remove(&cur->child_elem);
-
+  sema_down(&(cur->child_sema));
   if( cur == cur->parent->child_for_waiting)
   {
     cur->parent->child_exit_status = status;
+    cur->parent->child_exit_status_buffer[cur->child_index] = status;
     thread_unblock(cur->parent);
   }
 
@@ -269,57 +290,78 @@ void exit(int status)
       file_close(f);
     }
   }
+
+
+  //sema_up(&cur->parent->child_sema);
+  list_remove(&cur->child_elem);
   thread_exit();
 }
 
+
+
 int write (int fd, const void *buffer, unsigned size)
 {
-
+  lock_acquire(&filesys_lock);
+  int result;
   if(fd == 1)
   {
 
     putbuf(buffer, size);
 
     int len = strlen(buffer);
+    lock_release(&filesys_lock);
     return len < size ? len : size;
   }
   else if( ! (fd > 1 && fd < thread_current()->fd_ref)  )
   {
+  lock_release(&filesys_lock);
     exit(-1);
   }
   else
   {
 
     if(buffer >=  0xC0000000)
+    {
+    lock_release(&filesys_lock);
       exit(-1);
+    }
 
     void * addr = pagedir_get_page( thread_current()->pagedir, buffer);
     if(addr == NULL)
+    {
+    lock_release(&filesys_lock);
       exit(-1);
+    }
 
     struct thread * current = thread_current();
     struct file * f =current->fd_table[fd];
     if(f != NULL)
     {
+
       if(f->deny_write == true)
       {
         file_deny_write(f);
       }
-      return file_write(f,buffer,size);
+
+      result = file_write(f,buffer,size);
+      lock_release(&filesys_lock);
+      return result;
     }
     else
     {
+      lock_release(&filesys_lock);
       exit(-1);
     }
   }
 }
 
-int  exec( char * cmd_line)
+int exec( char * cmd_line)
 {
   int result;
-  struct thread * child = thread_get_with_tid(result);
- char local_cmd_line[15];
- int i = 0;
+  struct thread * child;
+  struct thread * current = thread_current();
+  char local_cmd_line[15];
+  int i = 0;
 
  void *addr2 = pagedir_get_page( thread_current()->pagedir,    cmd_line + 1    );
  if(addr2 == NULL){
@@ -342,15 +384,40 @@ int  exec( char * cmd_line)
      exit(-1);
    }
  }
+ /*
+ printf("cur name :%s\n",thread_current()->name);
+ printf("local_cmd_line :  %s\n",local_cmd_line);
+ printf("check_file  :  %p\n",check_file);
+ */
+ //thread_all_name_print();
+
  struct file * check_file = filesys_open(local_cmd_line);
-  if(check_file == NULL){
-    return -1;
+
+  if(check_file == NULL)
+  {
+    check_file = get_thread_execute_file_with_name(local_cmd_line);
+    if(check_file == NULL )
+    {
+        return -1;
+    }
+    else
+    {
+      file_close(check_file);
+    }
   }
   else{
     file_close(check_file);
   }
+  /*
+  strlcpy(cur->child_execute_file[cur->child_index_count].name,local_cmd_line , 15);
+  cur->child_execute_file[cur->child_index_count].exe_file = check_file;
+  */
+  strlcpy(current->cef[current->child_index_count].name, local_cmd_line,15);
+  current->cef[current->child_index_count].exe_file = check_file;
 
+  lock_acquire(&exe_lock);
   result = process_execute(cmd_line);
+  lock_release(&exe_lock);
   return result;
 }
 

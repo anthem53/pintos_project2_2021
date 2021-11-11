@@ -5,6 +5,7 @@
 #include "threads/thread.h"
 
 
+
 /* Opens a file for the given INODE, of which it takes ownership,
    and returns the new file.  Returns a null pointer if an
    allocation fails or if INODE is null. */
@@ -17,7 +18,7 @@ file_open (struct inode *inode)
       file->inode = inode;
       file->pos = 0;
       file->deny_write = false;
-
+      file->num_access_thread = 0;
       return file;
     }
   else

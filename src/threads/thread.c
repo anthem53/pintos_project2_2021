@@ -186,6 +186,8 @@ thread_create (const char *name, int priority,
   init_thread (t, name, priority);
   t->parent = thread_current();
   list_push_back(&thread_current()->child_list, &t->child_elem);
+  t->child_index = thread_current()->child_index_count;
+  thread_current()->child_index_count ++;
   tid = t->tid = allocate_tid ();
 
   /* Stack frame for kernel_thread(). */
@@ -478,7 +480,11 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
+  t->child_index_count = 0;
+  sema_init(&t->child_sema, 0);
+  sema_init(&t->exec_sema, 0);
   //t->parent = thread_current();
+
   list_init (&t->child_list);
   t-> child_exit_status = -1;
   t-> child_for_waiting = NULL;
@@ -621,8 +627,39 @@ struct thread * thread_get_with_tid(int tid)
 
   return NULL;
 }
+struct file * get_thread_execute_file_with_name(char * name)
+{
+  struct list_elem * e;
+  //printf("input name : %s\n",name);
+  //thread_current_print();
+  //thread_all_name_print();
+  for(e = list_begin(&all_list); e != list_end(&all_list) ; e = list_next(e) ){
+    struct thread * t = list_entry(e, struct thread, allelem);
+    //printf("ready_thread_name : %s\n",t->name);
+    if( strcmp(name, t->name)==0 && t->exe_file != NULL)
+    {
+      //printf("ready thread exe_file :%p\n",t->exe_file);
+      return t->exe_file;
+    }
 
+  }
 
+  return NULL;
+}
+void thread_all_name_print()
+{
+  struct list_elem * e;
+  int i = 0;
+  for(e = list_begin(&all_list); e != list_end(&all_list) ; e = list_next(e) ){
+    struct thread * t = list_entry(e, struct thread, allelem);
+    printf("[%d thread] : %s\n",i, t->name);
+    i++;
+  }
+}
+void thread_current_print()
+{
+  printf("[thread.c] current thread name : %s\n",thread_current()->name);;
+}
 
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */

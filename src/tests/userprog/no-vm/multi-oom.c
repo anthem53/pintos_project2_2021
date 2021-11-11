@@ -39,6 +39,8 @@ spawn_child (int c, enum child_termination_mode mode)
   char child_cmd[128];
   snprintf (child_cmd, sizeof child_cmd,
             "%s %d %s", test_name, c, mode == CRASH ? "-k" : "");
+  /*TEST*/
+  msg("[spawn child]child_cmd %s\n",child_cmd);
   return exec (child_cmd);
 }
 
@@ -125,7 +127,7 @@ main (int argc, char *argv[])
   for (i = 0; i < howmany; i++)
     {
       pid_t child_pid;
-
+      //msg("%d", i);
       /* Spawn a child that will be abnormally terminated.
          To speed the test up, do this only for processes
          spawned at a certain depth. */
